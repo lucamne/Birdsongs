@@ -9,6 +9,8 @@ struct DelayVoice
     float _delay_time{}; //> target delay time in samples
     float _inter_amnt{}; // holds current interplation amount
     float _pan{0.5f}; //> 0.0 is left and 1.0 is right
+    float _level{1.0f};
+    float* _dline{};
 };
 
 
@@ -21,26 +23,33 @@ public:
     ~DelayPhase() {delete[] _voices;}
     // adds new sample to delay line
     void process(float in);
+    // initializes delayline
+    void init();
     // returns sample in left buffer
     float getLeft() const {return _lbuff;}
     //returns sample in right buffer
     float getRight() const {return _rbuff;}
-    
+    // add new voice to delay
     void addVoice();
-    // set master delay time in ratio of max delay
-    void setMasterDelay(float time);   
+    // master delay phase controls - range: 0.0f - 1.0f
+    void setMasterDelay(float time);  
     void setFeedback(float f) {_feedback = f;}
     void setWarble(float w) {_warble = w;}
-
+    // voice specific controls - range: 0.0f - 1.0f
+    void setRatio(int voice_id, float ratio) {_voices[voice_id]._ratio = ratio;}
+    void setPan(int voice_id, float pan) {_voices[voice_id]._pan = pan;}
+    void setLevel(int voice_id, float lvl) {_voices[voice_id]._level - lvl;}
 private:
     int _voice_count{};
-    float _dline[MAX_DELAY]{}; //> main delay line
+    //float _dline[MAX_DELAY]{}; //> main delay line in ram
+    float DSY_SDRAM_BSS _dline_mem[MAX_DELAY * 50]; //> to replace _dline. delay line buffer stored in sdram
+
     float* _wptr{}; //> write pointer
     DelayVoice* _voices{};
 
-    float _master_delay{};
-    float _feedback{};
-    float _warble{};
+    float _master_delay{}; //> master delay time that voice delay ratio is based on 
+    float _feedback{}; //> overall feed back of system
+    float _warble{}; //> random delay shift which also caused pith shifting, higher is more unstable
 
     float _lbuff{};
     float _rbuff{};
@@ -60,10 +69,10 @@ private:
 template <int MAX_DELAY, int SAMPLE_RATE>
 DelayPhase<MAX_DELAY, SAMPLE_RATE>::DelayPhase()
 :_voice_count{0},
-_wptr{_dline},
+//_wptr{_dline},
 _voices{new DelayVoice[_voice_count]},
 _master_delay{0.5f},
-_feedback{0.2f},
+_feedback{0.3f},
 _warble{0.5f} 
 {
     setMasterDelay(_master_delay);
@@ -97,7 +106,7 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
         else {interp_amnt = _voices[i]._inter_amnt;}
 
         // read value and interpolate if necassary to lengthen or shorten delay
-        const float read_sample{readSample(_voices[i]._rptr + interp_amnt)};
+        const float read_sample{readSample(_voices[i]._rptr + interp_amnt) * _voices[i]._level};
         
         _voices[i]._rptr += 1 + interp_amnt;
         // keep read pointer in range
@@ -114,6 +123,17 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
+void DelayPhase<MAX_DELAY,SAMPLE_RATE>::init()
+{
+    for (int i{0}; i < MAX_DELAY * 50; i ++)
+    {
+        _dline_mem[i] = 0.0f;
+    }
+
+    _wptr = _dline_mem;
+}
+
+template <int MAX_DELAY, int SAMPLE_RATE>
 void DelayPhase<MAX_DELAY,SAMPLE_RATE>::addVoice()
 {
     DelayVoice* new_arr {new DelayVoice[++_voice_count]};
@@ -121,6 +141,8 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::addVoice()
 
     delete[] _voices;
     _voices = new_arr;
+
+    _voices[_voice_count - 1]._dline = _dline + (_voice_count - 1) * MAX_DELAY;
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
