@@ -68,7 +68,7 @@ int main(void)
 			if (delay_time_pot > 0.99f) {delay_time_pot = 1.0f;}
 			else if (delay_time_pot < 0.01f) {delay_time_pot = 0.0f;}
 
-			chorus.setDelayTime(static_cast<float>(SAMPLE_RATE * 2) * delay_time_pot);
+			chorus.setMasterDelay(delay_time_pot);
 		}
 
 		// of delay time pot has moved significantly

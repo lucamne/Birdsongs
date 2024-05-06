@@ -2,27 +2,42 @@
 
 #include "daisysp.h"
 
+struct DelayVoice
+{
+    float _rptr{};
+    float _ratio{}; //> ratio of master delay time
+    float _delay_time{}; //> target delay time in samples
+    float _inter_amnt{}; // holds current interplation amount
+    float _pan{}; //> 0.0 is left and 1.0 is right
+};
+
+
 template <int MAX_DELAY, int SAMPLE_RATE>
 class DelayPhase
 {
 public:
     DelayPhase()
     :_voice_count{3},
-    _rptr_arr{new float[_voice_count]},
     _wptr{_dline},
-    _delay_times{new float[_voice_count]},
-    _inter_arr{new float[_voice_count]},
-    _feedback{0.25f},
-    _time_spread{0.625f},
+    _voices{new DelayVoice[_voice_count]},
+    _master_delay{0.5f},
+    _feedback{0.2f},
     _warble{0.5f} 
     {
+        // init read pointers
         for (int i{0}; i < _voice_count; i++)
         {
-            _rptr_arr[i] = 0.0f;
+            _voices[i]._rptr = 0.0f;
+        }
+        // init delay voice ratios
+        _voices[0]._ratio = 1.0f;
+        for (int i{1}; i < _voice_count; i++)
+        {
+            _voices[i]._ratio = _voices[i-1]._ratio * 0.625f;
         }
 
-        setDelayTime(MAX_DELAY - 1);
-
+        setMasterDelay(_master_delay);
+        // init dsp effects
         _noise.Init();
         _filter.Init(SAMPLE_RATE);
         _filter.SetFreq(1000.0f);
@@ -30,9 +45,7 @@ public:
 
     ~DelayPhase()
     {
-        delete[] _rptr_arr;
-        delete[] _delay_times;
-        delete[] _inter_arr;
+        delete[] _voices;
     }
     // adds new sample to delay line
     void process(float in);
@@ -41,36 +54,29 @@ public:
     float getLeft() const {return _lbuff;}
     //returns sample in right buffer
     float getRight() const {return _rbuff;}
-    // set delay time in samples
-    void setDelayTime(int samples) {setDelayTime(static_cast<float>(samples));}
-    void setDelayTime(float samples)
+    // set master delay time in ratio of max delay
+    void setMasterDelay(float time)
     {
-        float ratio{1.0f};
-        float s{samples};
-        if (s < static_cast<float>(_voice_count)) {s = static_cast<float>(_voice_count);}
+        _master_delay = time * static_cast<float>(MAX_DELAY);
+        if (_master_delay < static_cast<float>(_voice_count)) {_master_delay = static_cast<float>(_voice_count);}
 
         for (int i{0}; i < _voice_count; i++)
         {
-            setDelayTime(i,ratio * s);
-            ratio *= _time_spread;
+            setDelayTime(i,_voices[i]._ratio * _master_delay);
         }
-    }
-    void setDelayTime(int voice_id, float samples);
-    
+    }    
 
     void setFeedback(float f) {_feedback = f;}
     void setWarble(float w) {_warble = w;}
 
 private:
     int _voice_count{};
-    float _dline[MAX_DELAY]{};
-    float* _rptr_arr{};
-    float* _wptr{};
-    float* _delay_times{};
-    float* _inter_arr{};
+    float _dline[MAX_DELAY]{}; //> main delay line
+    float* _wptr{}; //> write pointer
+    DelayVoice* _voices{};
 
+    float _master_delay{};
     float _feedback{};
-    float _time_spread{}; //> controls the variance of delay times
     float _warble{};
 
     float _lbuff{};
@@ -78,6 +84,9 @@ private:
 
     daisysp::WhiteNoise _noise{};
     daisysp::Svf _filter{};
+
+    // set delay time per voice
+    void setDelayTime(int voice_id, float samples);
 
     // reads sample from delay line at specific position and interpolates
     float readSample(float position)
@@ -104,7 +113,7 @@ private:
             const float noise_out{_noise.Process()};
             _filter.Process(noise_out);
             const float filter_out {_filter.Low()};
-            setDelayTime(i,_delay_times[i] + _warble * 10.0f * filter_out);
+            setDelayTime(i,_voices[i]._delay_time + _warble * 10.0f * filter_out);
         }
     }
 };
@@ -122,22 +131,22 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
     for (int i{0}; i < _voice_count; i++)
     {
         // Get current delay time
-        float curr_delay {static_cast<float>(_wptr - _dline) - _rptr_arr[i]};
+        float curr_delay {static_cast<float>(_wptr - _dline) - _voices[i]._rptr};
         // enforce positive delay
         if (curr_delay <= 0.0f) {curr_delay += static_cast<float>(MAX_DELAY);}
         // get difference from expected delay
-        const float delay_diff {curr_delay - _delay_times[i]};
+        const float delay_diff {curr_delay - _voices[i]._delay_time};
         float interp_amnt{};
 
-        if (std::abs(delay_diff) < std::abs(_inter_arr[i])) {interp_amnt = 0.0f;}
-        else {interp_amnt = _inter_arr[i];}
+        if (std::abs(delay_diff) < std::abs(_voices[i]._inter_amnt)) {interp_amnt = 0.0f;}
+        else {interp_amnt = _voices[i]._inter_amnt;}
 
         // read value and interpolate if necassary to lengthen or shorten delay
-        const float read_sample{readSample(_rptr_arr[i] + interp_amnt)};
+        const float read_sample{readSample(_voices[i]._rptr + interp_amnt)};
         
-        _rptr_arr[i]+= 1 + interp_amnt;
+        _voices[i]._rptr += 1 + interp_amnt;
         // keep read pointer in range
-        if (static_cast<int>(std::floor(_rptr_arr[i])) >= MAX_DELAY) {_rptr_arr[i] -= static_cast<float>(MAX_DELAY);}
+        if (static_cast<int>(std::floor(_voices[i]._rptr)) >= MAX_DELAY) {_voices[i]._rptr -= static_cast<float>(MAX_DELAY);}
 
         // output to center_dline
         if (i % 3 == 0)
@@ -163,12 +172,12 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::setDelayTime(int voice_id, float samples
     if (samples >= static_cast<float>(MAX_DELAY)) {samples = static_cast<float>(MAX_DELAY) - 1.0f;}
     else if (samples < 0.01f) {samples = 0.01f;}
 
-    _delay_times[voice_id] = samples;
+    _voices[voice_id]._delay_time = samples;
     // get current delay time
-    float curr_delay {static_cast<float>(_wptr - _dline) - _rptr_arr[voice_id]};
+    float curr_delay {static_cast<float>(_wptr - _dline) - _voices[voice_id]._rptr};
     // enforce positive delay
     if (curr_delay <= 0.0f) {curr_delay += static_cast<float>(MAX_DELAY);}
     // get difference from expected delay
-    const float delay_diff {curr_delay - _delay_times[voice_id]};
-    _inter_arr[voice_id] = delay_diff / static_cast<float>(SAMPLE_RATE);
+    const float delay_diff {curr_delay - _voices[voice_id]._delay_time};
+    _voices[voice_id]._inter_amnt = delay_diff / static_cast<float>(SAMPLE_RATE);
 }
