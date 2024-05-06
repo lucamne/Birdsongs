@@ -38,6 +38,8 @@ int main(void)
 	hw.PrintLine("Hardware Initialized");
 	const float hw_sample_rate {hw.AudioSampleRate()};
 
+	chorus.addVoice();
+
 	// init load meter
 	load_meter.Init(hw_sample_rate,hw.AudioBlockSize());
 	
