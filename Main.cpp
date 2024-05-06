@@ -1,4 +1,4 @@
-#include "_DelayPhase.h"
+#include "DelayPhase.h"
 
 #include "daisy_seed.h"
 
@@ -9,7 +9,7 @@ daisy::DaisySeed hw{}; //> Daisy seed hardware object
 daisy::CpuLoadMeter load_meter{};
 
 // init effects
-DelayPhase<SAMPLE_RATE,3> chorus{};
+DelayPhase<SAMPLE_RATE,SAMPLE_RATE> chorus{};
 float chorus_mix{0.5f};
 
 void AudioCallback(daisy::AudioHandle::InterleavingInputBuffer in, daisy::AudioHandle::InterleavingOutputBuffer out, size_t size)
@@ -55,6 +55,7 @@ int main(void)
 	hw.PrintLine("External Hardware Initialized");
 
 	float delay_time_pot{hw.adc.GetFloat(0)};
+	float feedback_pot{hw.adc.GetFloat(1)};
 	float mix_pot{hw.adc.GetFloat(2)};
 
 	///*** Pogram Loop ***///
@@ -67,7 +68,17 @@ int main(void)
 			if (delay_time_pot > 0.99f) {delay_time_pot = 1.0f;}
 			else if (delay_time_pot < 0.01f) {delay_time_pot = 0.0f;}
 
-			chorus.setDelayTime(static_cast<float>(SAMPLE_RATE) * delay_time_pot);
+			chorus.setDelayTime(static_cast<float>(SAMPLE_RATE * 2) * delay_time_pot);
+		}
+
+		// of delay time pot has moved significantly
+		if (std::abs(hw.adc.GetFloat(1) - feedback_pot) >= 0.01f)
+		{
+			feedback_pot = hw.adc.GetFloat(1);
+			if (feedback_pot > 0.99f) {feedback_pot = 1.0f;}
+			else if (feedback_pot < 0.01f) {feedback_pot = 0.0f;}
+
+			chorus.setFeedback(feedback_pot);
 		}
 		// Print to serial monitor
 
