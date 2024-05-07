@@ -11,6 +11,7 @@ struct DelayVoice
     float _inter_amnt{}; // holds current interplation amount
     float _pan{0.5f}; //> 0.0 is left and 1.0 is right
     float _level{1.0f};
+    float _feedback{0.5f};
     float* _dline{};
 };
 
@@ -35,25 +36,28 @@ public:
     
     // master delay phase controls - range: 0.0f - 1.0f
     void setMasterDelay(float time);  
-    void setFeedback(float f) {_feedback = f;}
     void setWarble(float w) {_warble = w;}
     // voice specific controls - range: 0.0f - 1.0f
+    void setFeedback(int voice_id, float f) {_voices[i]._feedback = f;}
     void setRatio(int voice_id, float ratio) {_voices[voice_id]._ratio = ratio;}
     void setPan(int voice_id, float pan) {_voices[voice_id]._pan = pan;}
     void setLevel(int voice_id, float lvl) {_voices[voice_id]._level - lvl;}
-
+    // system level getters
     int getVoiceCount() const {return _voice_count;}
     float getMasterDelayTimeInMS() const {return (_master_delay * MAX_DELAY) / (SAMPLE_RATE * 1000.0f)};
+    float getWarble() const {return _warble;}
+    // voice specific getters
+    float getRatio(int voice_id) const { return _voices[voice_id]._ratio;}
+    float getFeedback(int voice_id) const { return _voices[voice_id]._feedback;}
+    float getPan(int voice_id) const { return _voices[voice_id]._pan;}
+
 private:
     int _voice_count{};
-    //float _dline[MAX_DELAY]{}; //> main delay line in ram
     float* _dline_mem; //> to replace _dline. delay line buffer stored in sdram
-
     float* _wptr{}; //> write pointer
     DelayVoice* _voices{};
 
     float _master_delay{}; //> master delay time that voice delay ratio is based on 
-    float _feedback{}; //> overall feed back of system
     float _warble{}; //> random delay shift which also caused pith shifting, higher is more unstable
 
     float _lbuff{};
@@ -116,12 +120,12 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
         _voices[i]._rptr += 1 + interp_amnt;
         // keep read pointer in range
         if (static_cast<int>(std::floor(_voices[i]._rptr)) >= MAX_DELAY) {_voices[i]._rptr -= static_cast<float>(MAX_DELAY);}
-
+        // pan sample
         _lbuff += (1.0f - _voices[i]._pan) * read_sample;
         _rbuff += _voices[i]._pan * read_sample;
 
         // write new sample to delay line
-        *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * 0.5f * _feedback;
+        *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * 0.5f * _voices[i]._feedback;
     }
 
     // move write pointer forward and keep in range
