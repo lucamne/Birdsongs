@@ -33,18 +33,23 @@ public:
     float getRight() const {return _rbuff;}
     // add new voice to delay
     void addVoice();
-    
+    void deleteVoice(int voice_id);
+
     // master delay phase controls - range: 0.0f - 1.0f
     void setMasterDelay(float time);  
     void setWarble(float w) {_warble = w;}
     // voice specific controls - range: 0.0f - 1.0f
-    void setFeedback(int voice_id, float f) {_voices[i]._feedback = f;}
-    void setRatio(int voice_id, float ratio) {_voices[voice_id]._ratio = ratio;}
+    void setFeedback(int voice_id, float f) {_voices[voice_id]._feedback = f;}
+    void setRatio(int voice_id, float ratio) 
+    {
+        _voices[voice_id]._ratio = ratio;
+        setDelayTime(voice_id,_voices[voice_id]._ratio * _master_delay);
+    }
     void setPan(int voice_id, float pan) {_voices[voice_id]._pan = pan;}
     void setLevel(int voice_id, float lvl) {_voices[voice_id]._level - lvl;}
     // system level getters
     int getVoiceCount() const {return _voice_count;}
-    float getMasterDelayTimeInMS() const {return (_master_delay * MAX_DELAY) / (SAMPLE_RATE * 1000.0f)};
+    float getMasterDelayTimeInMS() const {return (_master_delay * MAX_DELAY) / (SAMPLE_RATE * 1000.0f);}
     float getWarble() const {return _warble;}
     // voice specific getters
     float getRatio(int voice_id) const { return _voices[voice_id]._ratio;}
@@ -81,7 +86,6 @@ DelayPhase<MAX_DELAY, SAMPLE_RATE>::DelayPhase()
 //_wptr{_dline},
 _voices{new DelayVoice[_voice_count]},
 _master_delay{0.5f},
-_feedback{0.3f},
 _warble{0.5f} 
 {
     setMasterDelay(_master_delay);
@@ -125,7 +129,7 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
         _rbuff += _voices[i]._pan * read_sample;
 
         // write new sample to delay line
-        *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * 0.5f * _voices[i]._feedback;
+        *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * _voices[i]._feedback;
     }
 
     // move write pointer forward and keep in range
@@ -155,6 +159,17 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::addVoice()
     _voices = new_arr;
 
     //_voices[_voice_count - 1]._dline = _dline_mem + (_voice_count - 1) * MAX_DELAY;
+}
+
+template <int MAX_DELAY, int SAMPLE_RATE>
+void DelayPhase<MAX_DELAY, SAMPLE_RATE>::deleteVoice(int voice_id)
+{
+    DelayVoice* new_arr {new DelayVoice[std::max(--_voice_count,0)]};
+    memcpy(new_arr, _voices  ,voice_id * sizeof(DelayVoice));
+    if (voice_id < _voice_count) {memcpy(new_arr + voice_id, _voices + voice_id + 1, (_voice_count - (voice_id + 1)) * sizeof(DelayVoice));}
+
+    delete[] _voices;
+    _voices = new_arr;
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
