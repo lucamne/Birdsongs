@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daisysp.h"
+#include "daisy_seed.h"
 
 struct DelayVoice
 {
@@ -19,18 +20,19 @@ class DelayPhase
 {
 public:
     DelayPhase();
-
     ~DelayPhase() {delete[] _voices;}
+    
     // adds new sample to delay line
     void process(float in);
     // initializes delayline
-    void init();
+    void init(float* buffer, int size);
     // returns sample in left buffer
     float getLeft() const {return _lbuff;}
     //returns sample in right buffer
     float getRight() const {return _rbuff;}
     // add new voice to delay
     void addVoice();
+    
     // master delay phase controls - range: 0.0f - 1.0f
     void setMasterDelay(float time);  
     void setFeedback(float f) {_feedback = f;}
@@ -39,10 +41,13 @@ public:
     void setRatio(int voice_id, float ratio) {_voices[voice_id]._ratio = ratio;}
     void setPan(int voice_id, float pan) {_voices[voice_id]._pan = pan;}
     void setLevel(int voice_id, float lvl) {_voices[voice_id]._level - lvl;}
+
+    int getVoiceCount() const {return _voice_count;}
+    float getMasterDelayTimeInMS() const {return (_master_delay * MAX_DELAY) / (SAMPLE_RATE * 1000.0f)};
 private:
     int _voice_count{};
     //float _dline[MAX_DELAY]{}; //> main delay line in ram
-    float DSY_SDRAM_BSS _dline_mem[MAX_DELAY * 50]; //> to replace _dline. delay line buffer stored in sdram
+    float* _dline_mem; //> to replace _dline. delay line buffer stored in sdram
 
     float* _wptr{}; //> write pointer
     DelayVoice* _voices{};
@@ -95,18 +100,18 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
     for (int i{0}; i < _voice_count; i++)
     {
         // Get current delay time
-        float curr_delay {static_cast<float>(_wptr - _dline) - _voices[i]._rptr};
+        float curr_delay {static_cast<float>(_wptr - _dline_mem) - _voices[i]._rptr};
         // enforce positive delay
         if (curr_delay <= 0.0f) {curr_delay += static_cast<float>(MAX_DELAY);}
         // get difference from expected delay
         const float delay_diff {curr_delay - _voices[i]._delay_time};
         float interp_amnt{};
-
+        // get interpolation amount
         if (std::abs(delay_diff) < std::abs(_voices[i]._inter_amnt)) {interp_amnt = 0.0f;}
         else {interp_amnt = _voices[i]._inter_amnt;}
 
         // read value and interpolate if necassary to lengthen or shorten delay
-        const float read_sample{readSample(_voices[i]._rptr + interp_amnt) * _voices[i]._level};
+        const float read_sample{readSample(_voices[i]._rptr + interp_amnt + MAX_DELAY * i) * _voices[i]._level};
         
         _voices[i]._rptr += 1 + interp_amnt;
         // keep read pointer in range
@@ -114,18 +119,21 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
 
         _lbuff += (1.0f - _voices[i]._pan) * read_sample;
         _rbuff += _voices[i]._pan * read_sample;
+
+        // write new sample to delay line
+        *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * 0.5f * _feedback;
     }
 
-    // write new sample to delay line
-    *(_wptr++) = in + (_lbuff + _rbuff) * 0.5f * _feedback;
-    // keep write pointer in range
-    if (_wptr - _dline >= MAX_DELAY) {_wptr -= MAX_DELAY;}
+    // move write pointer forward and keep in range
+    if (++_wptr - _dline_mem >= MAX_DELAY) {_wptr -= MAX_DELAY;}
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
-void DelayPhase<MAX_DELAY,SAMPLE_RATE>::init()
+void DelayPhase<MAX_DELAY,SAMPLE_RATE>::init(float* buffer, int size)
 {
-    for (int i{0}; i < MAX_DELAY * 50; i ++)
+    _dline_mem = buffer;
+
+    for (int i{0}; i < size; i ++)
     {
         _dline_mem[i] = 0.0f;
     }
@@ -142,7 +150,7 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::addVoice()
     delete[] _voices;
     _voices = new_arr;
 
-    _voices[_voice_count - 1]._dline = _dline + (_voice_count - 1) * MAX_DELAY;
+    //_voices[_voice_count - 1]._dline = _dline_mem + (_voice_count - 1) * MAX_DELAY;
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
@@ -165,7 +173,7 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::setDelayTime(int voice_id, float samples
 
     _voices[voice_id]._delay_time = samples;
     // get current delay time
-    float curr_delay {static_cast<float>(_wptr - _dline) - _voices[voice_id]._rptr};
+    float curr_delay {static_cast<float>(_wptr - _dline_mem) - _voices[voice_id]._rptr};
     // enforce positive delay
     if (curr_delay <= 0.0f) {curr_delay += static_cast<float>(MAX_DELAY);}
     // get difference from expected delay
@@ -188,7 +196,7 @@ float DelayPhase<MAX_DELAY,SAMPLE_RATE>::readSample(float position)
     if (interp_amnt < (1.0f / static_cast<float>(MAX_DELAY))) { interp_amnt = 0.0f;}
     else if (interp_amnt > (static_cast<float>(MAX_DELAY - 1) / static_cast<float>(MAX_DELAY))) {interp_amnt = 1.0f;}
 
-    return (1.0f - interp_amnt) * _dline[samp1] + interp_amnt * _dline[samp2];
+    return (1.0f - interp_amnt) * _dline_mem[samp1] + interp_amnt * _dline_mem[samp2];
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
