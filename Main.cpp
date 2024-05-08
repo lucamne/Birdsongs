@@ -136,7 +136,7 @@ void processInput(daisy::GPIO* buttons, Encoder* encoder, Potentiometer* pot_arr
 		hw.PrintLine("Voice:%d Time:%f Warble:%f Mix:%f",
 						current_voice + 1, 
 						delay.getMasterDelayTimeInMS(), 
-						delay.getWarble(),
+						delay.getFlutter(),
 						delay_mix);
 
 
@@ -146,7 +146,7 @@ void processInput(daisy::GPIO* buttons, Encoder* encoder, Potentiometer* pot_arr
 		}
 		if (pot_arr[1].process())
 		{
-			delay.setWarble(pot_arr[1].getVal());
+			delay.setFlutter(pot_arr[1].getVal());
 		}
 		if (pot_arr[2].process())
 		{

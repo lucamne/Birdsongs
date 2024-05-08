@@ -5,6 +5,7 @@
 
 struct DelayVoice
 {
+    bool _active{true}; //> true if active, false if bypassed
     float _rptr{0.0f};
     float _ratio{1.0f}; //> ratio of master delay time
     float _delay_time{}; //> target delay time in samples
@@ -37,7 +38,7 @@ public:
 
     // master delay phase controls - range: 0.0f - 1.0f
     void setMasterDelay(float time);  
-    void setWarble(float w) {_warble = w;}
+    void setFlutter(float w) {_flutter = w;}
     // voice specific controls - range: 0.0f - 1.0f
     void setGlobalFeedback(float f)
     {
@@ -51,11 +52,11 @@ public:
     }
     void setPan(int voice_id, float pan) {_voices[voice_id]._pan = pan;}
     void setGlobalLevel(float f) {for (int i{0}; i < _voice_count; i++) {_voices[i]._level = f;}}
-    void setLevel(int voice_id, float lvl) {_voices[voice_id]._level - lvl;}
+    void setLevel(int voice_id, float lvl) {_voices[voice_id]._level = lvl;}
     // system level getters
     int getVoiceCount() const {return _voice_count;}
     float getMasterDelayTimeInMS() const {return (_master_delay * MAX_DELAY) / (SAMPLE_RATE * 1000.0f);}
-    float getWarble() const {return _warble;}
+    float getFlutter() const {return _flutter;}
     // voice specific getters
     float getRatio(int voice_id) const { return _voices[voice_id]._ratio;}
     float getFeedback(int voice_id) const { return _voices[voice_id]._feedback;}
@@ -69,7 +70,7 @@ private:
     DelayVoice* _voices{};
 
     float _master_delay{}; //> master delay time that voice delay ratio is based on 
-    float _warble{}; //> random delay shift which also caused pith shifting, higher is more unstable
+    float _flutter{}; //> random delay shift which also caused pith shifting, higher is more unstable
 
     float _lbuff{};
     float _rbuff{};
@@ -82,8 +83,10 @@ private:
 
     // reads sample from delay line at specific position and interpolates
     float readSample(float position);
-
-    void randomizeDelays();
+    // returns low pass filtered noise value
+    float getLPNoise();
+    // randomizes delay values to create a flutter effect
+    void setFlutter();
 };
 
 template <int MAX_DELAY, int SAMPLE_RATE>
@@ -92,7 +95,7 @@ DelayPhase<MAX_DELAY, SAMPLE_RATE>::DelayPhase()
 //_wptr{_dline},
 _voices{new DelayVoice[_voice_count]},
 _master_delay{0.5f},
-_warble{0.5f} 
+_flutter{0.5f} 
 {
     setMasterDelay(_master_delay);
     // init dsp effects
@@ -105,7 +108,7 @@ template <int MAX_DELAY, int SAMPLE_RATE>
 void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
 {
     // apply some randomness to delays
-    randomizeDelays();
+    setFlutter();
     // clear buffers
     _lbuff = 0.0f;
     _rbuff = 0.0f;
@@ -113,6 +116,9 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
     // read next sample from delay line
     for (int i{0}; i < _voice_count; i++)
     {
+        // bypass
+        if (!_voices[i]._active) {continue;}
+
         // Get current delay time
         float curr_delay {static_cast<float>(_wptr - _dline_mem) - _voices[i]._rptr};
         // enforce positive delay
@@ -126,14 +132,14 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
 
         // read value and interpolate if necassary to lengthen or shorten delay
         const float read_sample{readSample(_voices[i]._rptr + interp_amnt + MAX_DELAY * i)};
-        
+        // increment read pointer
         _voices[i]._rptr += 1 + interp_amnt;
         // keep read pointer in range
         if (static_cast<int>(std::floor(_voices[i]._rptr)) >= MAX_DELAY) {_voices[i]._rptr -= static_cast<float>(MAX_DELAY);}
-        // pan sample
+
+        // push sample to buffers with panning and tremolo
         _lbuff += (1.0f - _voices[i]._pan) * read_sample * _voices[i]._level;
         _rbuff += _voices[i]._pan * read_sample * _voices[i]._level;
-
         // write new sample to delay line
         *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * _voices[i]._feedback;
     }
@@ -225,13 +231,30 @@ float DelayPhase<MAX_DELAY,SAMPLE_RATE>::readSample(float position)
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
-void DelayPhase<MAX_DELAY,SAMPLE_RATE>::randomizeDelays()
+float DelayPhase<MAX_DELAY, SAMPLE_RATE>::getLPNoise()
 {
+    const float noise_out{_noise.Process()};
+    _filter.Process(noise_out);
+    return _filter.Low();
+}
+
+template <int MAX_DELAY, int SAMPLE_RATE>
+void DelayPhase<MAX_DELAY,SAMPLE_RATE>::setFlutter()
+{
+    static constexpr float DELAY_SCALAR{10.0f};
+    static constexpr float LEVEL_SCALAR{0.05f};
+
     for (int i{0}; i < _voice_count; i++)
-    {
-        const float noise_out{_noise.Process()};
-        _filter.Process(noise_out);
-        const float filter_out {_filter.Low()};
-        setDelayTime(i,_voices[i]._delay_time + _warble * 10.0f * filter_out);
+    {   
+        if (!_voices[i]._active) {continue;}
+        // randomizing delay time slightly causes pleasent random pitch shifting
+        float noise {getLPNoise()};
+        setDelayTime(i,_voices[i]._delay_time + _flutter * DELAY_SCALAR * noise);
+        
+        // randomize delay volume
+        noise = getLPNoise();
+        // ensure positive
+        noise = std::abs(noise);
+        _voices[i]._level = 1.0f - (noise * _flutter * LEVEL_SCALAR);
     }
 }
