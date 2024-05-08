@@ -39,6 +39,10 @@ public:
     void setMasterDelay(float time);  
     void setWarble(float w) {_warble = w;}
     // voice specific controls - range: 0.0f - 1.0f
+    void setGlobalFeedback(float f)
+    {
+        for (int i{0}; i < _voice_count; i++) {_voices[i]._feedback = f;}
+    }
     void setFeedback(int voice_id, float f) {_voices[voice_id]._feedback = f;}
     void setRatio(int voice_id, float ratio) 
     {
@@ -46,6 +50,7 @@ public:
         setDelayTime(voice_id,_voices[voice_id]._ratio * _master_delay);
     }
     void setPan(int voice_id, float pan) {_voices[voice_id]._pan = pan;}
+    void setGlobalLevel(float f) {for (int i{0}; i < _voice_count; i++) {_voices[i]._level = f;}}
     void setLevel(int voice_id, float lvl) {_voices[voice_id]._level - lvl;}
     // system level getters
     int getVoiceCount() const {return _voice_count;}
@@ -55,6 +60,7 @@ public:
     float getRatio(int voice_id) const { return _voices[voice_id]._ratio;}
     float getFeedback(int voice_id) const { return _voices[voice_id]._feedback;}
     float getPan(int voice_id) const { return _voices[voice_id]._pan;}
+    float getLevel(int voice_id) const {return _voices[voice_id]._level;}
 
 private:
     int _voice_count{};
@@ -119,14 +125,14 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
         else {interp_amnt = _voices[i]._inter_amnt;}
 
         // read value and interpolate if necassary to lengthen or shorten delay
-        const float read_sample{readSample(_voices[i]._rptr + interp_amnt + MAX_DELAY * i) * _voices[i]._level};
+        const float read_sample{readSample(_voices[i]._rptr + interp_amnt + MAX_DELAY * i)};
         
         _voices[i]._rptr += 1 + interp_amnt;
         // keep read pointer in range
         if (static_cast<int>(std::floor(_voices[i]._rptr)) >= MAX_DELAY) {_voices[i]._rptr -= static_cast<float>(MAX_DELAY);}
         // pan sample
-        _lbuff += (1.0f - _voices[i]._pan) * read_sample;
-        _rbuff += _voices[i]._pan * read_sample;
+        _lbuff += (1.0f - _voices[i]._pan) * read_sample * _voices[i]._level;
+        _rbuff += _voices[i]._pan * read_sample * _voices[i]._level;
 
         // write new sample to delay line
         *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * _voices[i]._feedback;
