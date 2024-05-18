@@ -1,19 +1,28 @@
 #pragma once
 
+
 #include "daisysp.h"
 #include "daisy_seed.h"
 
 struct DelayVoice
 {
-    bool _active{true}; //> true if active, false if bypassed
-    float _rptr{0.0f};
-    float _ratio{1.0f}; //> ratio of master delay time
+    DelayVoice()
+    :_active{true},
+    _rptr{0.0f},
+    _ratio{1.0f},
+    _pan{0.5f},
+    _level{1.0f},
+    _feedback{0.3f} {}
+
+    bool _active{}; //> true if active, false if bypassed
+    float _rptr{};
+    float _ratio{}; //> ratio of master delay time
     float _delay_time{}; //> target delay time in samples
     float _inter_amnt{}; // holds current interplation amount
-    float _pan{0.5f}; //> 0.0 is left and 1.0 is right
-    float _level{1.0f};
-    float _feedback{0.5f};
-    float* _dline{};
+    float _pan{}; //> 0.0 is left and 1.0 is right
+    float _level{};
+    float _feedback{}; //> currently not used
+    //float* _dline{};
 };
 
 
@@ -36,14 +45,11 @@ public:
     void addVoice();
     void deleteVoice(int voice_id);
 
-    // master delay phase controls - range: 0.0f - 1.0f
+    // set master delay time as ratio of MAX_DELAY - range: 0.0f - 1.0f
     void setMasterDelay(float time);  
     void setFlutter(float w) {_flutter = w;}
     // voice specific controls - range: 0.0f - 1.0f
-    void setGlobalFeedback(float f)
-    {
-        for (int i{0}; i < _voice_count; i++) {_voices[i]._feedback = f;}
-    }
+    void setGlobalFeedback(float f) { _master_feedback = f;}
     void setFeedback(int voice_id, float f) {_voices[voice_id]._feedback = f;}
     void setRatio(int voice_id, float ratio) 
     {
@@ -53,10 +59,13 @@ public:
     void setPan(int voice_id, float pan) {_voices[voice_id]._pan = pan;}
     void setGlobalLevel(float f) {for (int i{0}; i < _voice_count; i++) {_voices[i]._level = f;}}
     void setLevel(int voice_id, float lvl) {_voices[voice_id]._level = lvl;}
+    // bool activates voice, false deactivates
+    void setActive(int voice_id, bool active) {_voices[voice_id]._active = active;}
     // system level getters
     int getVoiceCount() const {return _voice_count;}
-    float getMasterDelayTimeInMS() const {return (_master_delay * MAX_DELAY) / (SAMPLE_RATE * 1000.0f);}
+    float getMasterDelayTimeInMS() const {return (_master_delay / SAMPLE_RATE) * 1000.0f;}
     float getFlutter() const {return _flutter;}
+    float getGlobalFeedback() const {return _master_feedback;}
     // voice specific getters
     float getRatio(int voice_id) const { return _voices[voice_id]._ratio;}
     float getFeedback(int voice_id) const { return _voices[voice_id]._feedback;}
@@ -69,7 +78,8 @@ private:
     float* _wptr{}; //> write pointer
     DelayVoice* _voices{};
 
-    float _master_delay{}; //> master delay time that voice delay ratio is based on 
+    float _master_delay{}; //> master delay time in samples that voice delay ratio is based on 
+    float _master_feedback{};
     float _flutter{}; //> random delay shift which also caused pith shifting, higher is more unstable
 
     float _lbuff{};
@@ -94,14 +104,15 @@ DelayPhase<MAX_DELAY, SAMPLE_RATE>::DelayPhase()
 :_voice_count{0},
 //_wptr{_dline},
 _voices{new DelayVoice[_voice_count]},
-_master_delay{0.5f},
+_master_delay{1000.0f},
+_master_feedback{0.3f},
 _flutter{0.5f} 
 {
     setMasterDelay(_master_delay);
     // init dsp effects
     _noise.Init();
     _filter.Init(SAMPLE_RATE);
-    _filter.SetFreq(1000.0f);
+    _filter.SetFreq(200.0f);
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
@@ -141,7 +152,7 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
         _lbuff += (1.0f - _voices[i]._pan) * read_sample * _voices[i]._level;
         _rbuff += _voices[i]._pan * read_sample * _voices[i]._level;
         // write new sample to delay line
-        *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * _voices[i]._feedback;
+        *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * _master_feedback;
     }
 
     // move write pointer forward and keep in range
@@ -166,11 +177,10 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::addVoice()
 {
     DelayVoice* new_arr {new DelayVoice[++_voice_count]};
     memcpy(new_arr,_voices,(_voice_count - 1) * sizeof(DelayVoice));
+    //for (int i{0}; i < _voice_count - 1; i++) {new_arr[i] = _voices[i];}
 
     delete[] _voices;
     _voices = new_arr;
-
-    //_voices[_voice_count - 1]._dline = _dline_mem + (_voice_count - 1) * MAX_DELAY;
 }
 
 template <int MAX_DELAY, int SAMPLE_RATE>
@@ -179,6 +189,8 @@ void DelayPhase<MAX_DELAY, SAMPLE_RATE>::deleteVoice(int voice_id)
     DelayVoice* new_arr {new DelayVoice[std::max(--_voice_count,0)]};
     memcpy(new_arr, _voices  ,voice_id * sizeof(DelayVoice));
     if (voice_id < _voice_count) {memcpy(new_arr + voice_id, _voices + voice_id + 1, (_voice_count - (voice_id + 1)) * sizeof(DelayVoice));}
+    //for (int i{0}; i < voice_id; i++) {new_arr[i] = _voices[i];}
+    //for (int i{voice_id + 1}; i < _voice_count; i++) {new_arr[i] = _voices[i];}
 
     delete[] _voices;
     _voices = new_arr;
