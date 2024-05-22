@@ -7,14 +7,14 @@
 struct DelayVoice
 {
     DelayVoice()
-    :_active{true},
+    :_bypass{false},
     _rptr{0.0f},
     _ratio{1.0f},
     _pan{0.5f},
     _level{1.0f},
     _feedback{0.3f} {}
 
-    bool _active{}; //> true if active, false if bypassed
+    bool _bypass{}; //> true if bypassed, false if active
     float _rptr{};
     float _ratio{}; //> ratio of master delay time
     float _delay_time{}; //> target delay time in samples
@@ -60,7 +60,7 @@ public:
     void setGlobalLevel(float f) {for (int i{0}; i < _voice_count; i++) {_voices[i]._level = f;}}
     void setLevel(int voice_id, float lvl) {_voices[voice_id]._level = lvl;}
     // bool activates voice, false deactivates
-    void setActive(int voice_id, bool active) {_voices[voice_id]._active = active;}
+    void setBypass(int voice_id, bool bypass) {_voices[voice_id]._bypass = bypass;}
     // system level getters
     int getVoiceCount() const {return _voice_count;}
     float getMasterDelayTimeInMS() const {return (_master_delay / SAMPLE_RATE) * 1000.0f;}
@@ -127,9 +127,6 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
     // read next sample from delay line
     for (int i{0}; i < _voice_count; i++)
     {
-        // bypass
-        if (!_voices[i]._active) {continue;}
-
         // Get current delay time
         float curr_delay {static_cast<float>(_wptr - _dline_mem) - _voices[i]._rptr};
         // enforce positive delay
@@ -148,11 +145,20 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::process(float in)
         // keep read pointer in range
         if (static_cast<int>(std::floor(_voices[i]._rptr)) >= MAX_DELAY) {_voices[i]._rptr -= static_cast<float>(MAX_DELAY);}
 
-        // push sample to buffers with panning and tremolo
-        _lbuff += (1.0f - _voices[i]._pan) * read_sample * _voices[i]._level;
-        _rbuff += _voices[i]._pan * read_sample * _voices[i]._level;
+        // voice output
+        const float left_out = (1.0f - _voices[i]._pan) * read_sample * _voices[i]._level;
+        const float right_out = _voices[i]._pan * read_sample * _voices[i]._level;
+
         // write new sample to delay line
-        *(_wptr + MAX_DELAY * i) = in + (_lbuff + _rbuff) * _master_feedback;
+        *(_wptr + MAX_DELAY * i) = in + (left_out + right_out) * _master_feedback;
+
+        // if voice is not bypassed then push to output buffer
+        if (!_voices[i]._bypass)
+        {
+            // push sample to buffers with panning
+            _lbuff += left_out;
+            _rbuff += right_out;
+        }
     }
 
     // move write pointer forward and keep in range
@@ -258,7 +264,6 @@ void DelayPhase<MAX_DELAY,SAMPLE_RATE>::setFlutter()
 
     for (int i{0}; i < _voice_count; i++)
     {   
-        if (!_voices[i]._active) {continue;}
         // randomizing delay time slightly causes pleasent random pitch shifting
         float noise {getLPNoise()};
         setDelayTime(i,_voices[i]._delay_time + _flutter * DELAY_SCALAR * noise);
