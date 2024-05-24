@@ -1,4 +1,4 @@
-#include "DelayPhase.h"
+#include "DelayVoice.h"
 #include "Encoder.h"
 #include "Potentiometer.h"
 
@@ -9,13 +9,13 @@
 ///*** Global Values ***///
 static constexpr int SAMPLE_RATE{48000};
 static constexpr int MAX_DELAY{SAMPLE_RATE * 2};
-float DSY_SDRAM_BSS SDRAM_BUFFER[MAX_DELAY * 50];
+float DSY_SDRAM_BSS SDRAM_BUFFER[MAX_DELAY * 2];
 
 daisy::DaisySeed hw{}; //> Daisy seed hardware object
 daisy::CpuLoadMeter load_meter{};
 
 // init effects
-DelayPhase<MAX_DELAY,SAMPLE_RATE> delay{};
+DelayVoice delay{};
 float delay_mix{0.3f};
 
 void AudioCallback(daisy::AudioHandle::InterleavingInputBuffer in, daisy::AudioHandle::InterleavingOutputBuffer out, size_t size)
@@ -39,7 +39,6 @@ int main(void)
 	hw.Init();
 	hw.SetAudioBlockSize(4); //> number of samples handled per callback
 	hw.SetAudioSampleRate(daisy::SaiHandle::Config::SampleRate::SAI_48KHZ);
-	hw.StartAudio(AudioCallback);
 	hw.StartLog();
 	const float hw_sample_rate {hw.AudioSampleRate()};
 
@@ -47,17 +46,9 @@ int main(void)
 	load_meter.Init(hw_sample_rate,hw.AudioBlockSize());
 	
 	// init effects 
-	delay.init(SDRAM_BUFFER, SAMPLE_RATE * 50);
-	// add voice 0 
-	delay.addVoice();
-	// add voice 1
-	delay.addVoice();
-	delay.setPan(1,0.0f);
-	delay.setRatio(1,0.87f);
-	// add voice 2
-	delay.addVoice();
-	delay.setPan(2,1.0f);
-	delay.setRatio(2,0.66f);
+	delay.init(SDRAM_BUFFER, MAX_DELAY, SAMPLE_RATE);
+
+	hw.StartAudio(AudioCallback);
 
 	// Configure ADC channel
 	constexpr int NUM_POTS{4};
@@ -94,23 +85,18 @@ int main(void)
 	while(1)
 	{
 		hw.PrintLine("Time:%f Feedback:%f Flutter:%f Mix:%f",
-						delay.getMasterDelayTimeInMS(), 
-						delay.getGlobalFeedback(),
+						(delay.getDelayTime() / static_cast<float>(SAMPLE_RATE)) * 1000.0f, 
+						delay.getFeedback(),
 						delay.getFlutter(),
 						delay_mix);
-		
-		// activate/bypass voices
-		delay.setBypass(0,voice1_switch.Read());
-		delay.setBypass(1,voice2_switch.Read());
-		delay.setBypass(2,voice3_switch.Read());
 		// process pots
 		if (pot_map[TIME].process())
 		{
-			delay.setMasterDelay(pot_map[TIME].getVal());
+			delay.setDelayTime(pot_map[TIME].getVal() * MAX_DELAY);
 		}
 		if (pot_map[FEEDBACK].process())
 		{
-			delay.setGlobalFeedback(pot_map[FEEDBACK].getVal());
+			delay.setFeedback(pot_map[FEEDBACK].getVal());
 		}
 		if (pot_map[FLUTTER].process())
 		{
@@ -122,26 +108,3 @@ int main(void)
 		}
 	}
 }
-
-// // process inputs, MAKE SURE pot_arr has approriate size
-// void processInput(Potentiometer* pot_arr)
-// {
-// 	hw.PrintLine("Time:%f Feedback:%f Flutter:%f",
-// 						delay.getMasterDelayTimeInMS(), 
-// 						delay.getGlobalFeedback(),
-// 						delay.getFlutter());
-
-
-// 	if (pot_arr[2].process())
-// 	{
-// 		delay.setMasterDelay(pot_arr[2].getVal());
-// 	}
-// 	if (pot_arr[1].process())
-// 	{
-// 		delay.setGlobalFeedback(pot_arr[1].getVal());
-// 	}
-// 	if (pot_arr[0].process())
-// 	{
-// 		delay.setFlutter(pot_arr[0].getVal());
-// 	}
-// }

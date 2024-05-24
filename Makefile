@@ -8,7 +8,7 @@ LDFLAGS = -u _printf_float
 TARGET = Main
 
 # Sources
-CPP_SOURCES = Main.cpp
+CPP_SOURCES = Main.cpp DelayVoice.cpp
 
 # Library Locations
 LIBDAISY_DIR = /home/luca/Desktop/DaisyExamples/libDaisy/
