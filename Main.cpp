@@ -52,6 +52,7 @@ int main(void)
 	delay.setPan(0,0.0f);
 	delay.setPan(1,0.5f);
 	delay.setPan(2,1.0f);
+	delay.setPingPongMode(true);
 	// set temporary ratios
 	delay.setDelayRatio(0,0.83f);
 	delay.setDelayRatio(1,1.0f);

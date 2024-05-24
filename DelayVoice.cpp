@@ -16,6 +16,10 @@ void DelayVoice::init(float* buffer, int buffer_size, int sample_rate)
     _noise.Init();
     _filter.Init(_sample_rate);
     _filter.SetFreq(200.0f);    //> set cutoff point for low pass filter at 200Hz
+    // init sin osc for ping pong mode
+    const float rate {0.6f + getLPNoise() * 0.5f};
+    _sin_osc.Init(_sample_rate);
+    _sin_osc.SetFreq(rate);
 }
 
 void DelayVoice::process(float in)
@@ -42,9 +46,15 @@ void DelayVoice::process(float in)
     // ensure read pointer in range
     if (static_cast<int>(std::floor(_rptr)) >= _max_delay) {_rptr -= static_cast<float>(_max_delay);}
 
-    // set voice output
-    _lbuff = (1.0f - _pan) * dline_sample;
-    _rbuff = _pan * dline_sample;
+    // get pan dependent on ping pong mode
+    float current_pan{_pan};
+    if (_ping_pong_mode) {current_pan = _sin_osc.Process() + 0.5f;}
+    // if not in ping pong mode, still run osc
+    else {_sin_osc.Process();}
+
+    // set voice output 
+    _lbuff = (1.0f - current_pan) * dline_sample;
+    _rbuff = current_pan * dline_sample;
 
     // write new sample to delay line
     *_wptr = in + (_lbuff + _rbuff) * _feedback;
@@ -76,6 +86,9 @@ void DelayVoice::setPan(float pan)
     else if (pan > 1.0f) {pan = 1.0f;}
 
     _pan = pan;
+
+    // adjust phase of ping pong osc based on _pan
+    _sin_osc.PhaseAdd(_pan * 0.5f);
 }
 
 void DelayVoice::setFlutter(float flutter)

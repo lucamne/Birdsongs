@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Synthesis/oscillator.h"
 #include "daisysp.h"
 
 class DelayVoice
@@ -37,6 +38,8 @@ public:
     void setFlutter(float flutter);
     // set bypass to true or false
     void setBypass(bool b) {_bypass = b;}
+    // set ping_pong_mode
+    void setPingPongMode(bool b) {_ping_pong_mode = b;}
     
     // get buffer outputs
     float getRight() const {return _rbuff;}
@@ -70,9 +73,12 @@ private:
     float _pan{};           //> 0.0f is left, 1.0f is right
     float _flutter{};       //> controls warping of delay line
     bool _bypass{};         //> stores bypass state to be used by wrapper
+    bool _ping_pong_mode{}; //> true if voice is in ping pong mode
+
     // daisy premade dsp objects
     daisysp::WhiteNoise _noise{};
     daisysp::Svf _filter{};
+    daisysp::Oscillator _sin_osc{};
 
     // returns interpolated sample at position in _dline
     float readSample(float position);

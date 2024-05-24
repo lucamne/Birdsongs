@@ -26,6 +26,8 @@ public:
     void setMasterFeedback(float feedback);
     // sets master flutter in range 0.0f to 1.0f
     void setMasterFlutter(float flutter);
+    // set ping pong mode to on or off
+    void setPingPongMode(bool b);
     // set delay ratio of specific voice in range 0.0f to 1.0f
     void setDelayRatio(int voice_id, float ratio);
     // set pan of specific voice in range 0.0f to 1.0f

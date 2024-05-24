@@ -94,6 +94,14 @@ void DelayEngine::setMasterFlutter(float flutter)
     }
 }
 
+void DelayEngine::setPingPongMode(bool b)
+{
+    for (int voice_id{0}; voice_id < _voice_count; voice_id++)
+    {
+        _voices[voice_id].setPingPongMode(b);
+    }
+}
+
 void DelayEngine::setDelayRatio(int voice_id, float ratio)
 {
     _ratios[voice_id] = enforceRatio(ratio);
