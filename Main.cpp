@@ -1,4 +1,4 @@
-#include "DelayVoice.h"
+#include "DelayEngine.h"
 #include "Encoder.h"
 #include "Potentiometer.h"
 
@@ -7,15 +7,16 @@
 #include <map>
 
 ///*** Global Values ***///
+static constexpr int NUM_VOICES{3};
 static constexpr int SAMPLE_RATE{48000};
 static constexpr int MAX_DELAY{SAMPLE_RATE * 2};
-float DSY_SDRAM_BSS SDRAM_BUFFER[MAX_DELAY * 2];
+float DSY_SDRAM_BSS SDRAM_BUFFER[MAX_DELAY * NUM_VOICES];
 
 daisy::DaisySeed hw{}; //> Daisy seed hardware object
 daisy::CpuLoadMeter load_meter{};
 
 // init effects
-DelayVoice delay{};
+DelayEngine delay{};
 float delay_mix{0.3f};
 
 void AudioCallback(daisy::AudioHandle::InterleavingInputBuffer in, daisy::AudioHandle::InterleavingOutputBuffer out, size_t size)
@@ -46,7 +47,15 @@ int main(void)
 	load_meter.Init(hw_sample_rate,hw.AudioBlockSize());
 	
 	// init effects 
-	delay.init(SDRAM_BUFFER, MAX_DELAY, SAMPLE_RATE);
+	delay.init(SDRAM_BUFFER, MAX_DELAY, NUM_VOICES, SAMPLE_RATE);
+	// set pans of voices
+	delay.setPan(0,0.0f);
+	delay.setPan(1,0.5f);
+	delay.setPan(2,1.0f);
+	// set temporary ratios
+	delay.setDelayRatio(0,0.83f);
+	delay.setDelayRatio(1,1.0f);
+	delay.setDelayRatio(2,0.67f);
 
 	hw.StartAudio(AudioCallback);
 
@@ -84,23 +93,27 @@ int main(void)
 	///*** Pogram Loop ***///
 	while(1)
 	{
+		delay.setBypass(0,voice1_switch.Read());
+		delay.setBypass(1,voice2_switch.Read());
+		delay.setBypass(2,voice3_switch.Read());
+
 		hw.PrintLine("Time:%f Feedback:%f Flutter:%f Mix:%f",
-						(delay.getDelayTime() / static_cast<float>(SAMPLE_RATE)) * 1000.0f, 
-						delay.getFeedback(),
-						delay.getFlutter(),
+						(delay.getMasterDelayTime() / static_cast<float>(SAMPLE_RATE)) * 1000.0f, 
+						delay.getMasterFeedback(),
+						delay.getMasterFlutter(),
 						delay_mix);
 		// process pots
 		if (pot_map[TIME].process())
 		{
-			delay.setDelayTime(pot_map[TIME].getVal() * MAX_DELAY);
+			delay.setMasterDelayTime(pot_map[TIME].getVal() * MAX_DELAY);
 		}
 		if (pot_map[FEEDBACK].process())
 		{
-			delay.setFeedback(pot_map[FEEDBACK].getVal());
+			delay.setMasterFeedback(pot_map[FEEDBACK].getVal());
 		}
 		if (pot_map[FLUTTER].process())
 		{
-			delay.setFlutter(pot_map[FLUTTER].getVal());
+			delay.setMasterFeedback(pot_map[FLUTTER].getVal());
 		}
 		if (pot_map[MIX].process())
 		{
