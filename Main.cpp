@@ -2,31 +2,47 @@
 #include "Encoder.h"
 #include "Potentiometer.h"
 
+//#include "lcd_hd44780.h"
 #include "daisy_seed.h"
 
 #include <map>
 
 ///*** Global Values ***///
-static constexpr int NUM_VOICES{3};
 static constexpr int SAMPLE_RATE{48000};
+/// constants for delay
+static constexpr int DELAY_VOICES{3};
 static constexpr int MAX_DELAY{SAMPLE_RATE * 2};
-float DSY_SDRAM_BSS SDRAM_BUFFER[MAX_DELAY * NUM_VOICES];
+float DSY_SDRAM_BSS DELAY_SDRAM_BUFFER[MAX_DELAY * DELAY_VOICES];
+/// constants for chorus
+static constexpr int CHORUS_VOICES{2};
+static constexpr int MAX_CHORUS_DELAY{SAMPLE_RATE / 30};
+float DSY_SDRAM_BSS CHORUS_SDRAM_BUFFER[MAX_CHORUS_DELAY * CHORUS_VOICES];
 
 daisy::DaisySeed hw{}; //> Daisy seed hardware object
 daisy::CpuLoadMeter load_meter{};
 
 // init effects
 DelayEngine delay{};
+DelayEngine chorus{};
 float delay_mix{0.3f};
+float chorus_mix{0.333f};
 
 void AudioCallback(daisy::AudioHandle::InterleavingInputBuffer in, daisy::AudioHandle::InterleavingOutputBuffer out, size_t size)
 {
 	load_meter.OnBlockStart();
     for (size_t i = 0; i < size; i+=2)
     {
-		delay.process(in[i]);
-        out[i] = delay.getLeft() * delay_mix + in[i] * (1 - delay_mix);
-        out[i+1] = delay.getRight() * delay_mix + in[i] * (1 - delay_mix);
+		// delay stage
+		// delay.process(in[i]);
+        // out[i] = delay.getLeft() * delay_mix + in[i] * (1 - delay_mix);
+        // out[i+1] = delay.getRight() * delay_mix + in[i] * (1 - delay_mix);
+
+		// chorus stage
+		chorus.process(in[i]);
+		out[i] = chorus.getLeft() * chorus_mix + in[i] * (1 - chorus_mix);
+		out[i+1] = chorus.getRight() * chorus_mix + in[i] * (1 - chorus_mix);
+
+		// passthrough
 		// out[i] = in[i];
 		// out[i+1] = in[i];
     }
@@ -46,17 +62,29 @@ int main(void)
 	// init load meter
 	load_meter.Init(hw_sample_rate,hw.AudioBlockSize());
 	
-	// init effects 
-	delay.init(SDRAM_BUFFER, MAX_DELAY, NUM_VOICES, SAMPLE_RATE);
+	/// init delay 
+	delay.init(DELAY_SDRAM_BUFFER, MAX_DELAY, DELAY_VOICES, SAMPLE_RATE);
 	// set pans of voices
 	delay.setPan(0,0.0f);
 	delay.setPan(1,0.5f);
 	delay.setPan(2,1.0f);
+	// temporarily hardcode ping pong mode to true
 	delay.setPingPongMode(true);
-	// set temporary ratios
-	delay.setDelayRatio(0,0.83f);
+	// ratios are hardcoded temporarily, will be assigned to pots
+	delay.setDelayRatio(0,0.67f);
 	delay.setDelayRatio(1,1.0f);
-	delay.setDelayRatio(2,0.67f);
+	delay.setDelayRatio(2,0.44f);
+
+	/// init chorus
+	chorus.init(CHORUS_SDRAM_BUFFER, MAX_CHORUS_DELAY, CHORUS_VOICES, SAMPLE_RATE);
+	chorus.setMasterDelayTime(MAX_CHORUS_DELAY);
+	chorus.setMasterFlutter(0.667f);
+	// set voice panning
+	chorus.setPan(0,0.0f);
+	chorus.setPan(1,1.0f);
+	// add slight variation in delay time
+	chorus.setDelayRatio(0,1.0f);
+	chorus.setDelayRatio(1,0.67f);
 
 	hw.StartAudio(AudioCallback);
 
@@ -91,6 +119,13 @@ int main(void)
 	daisy::GPIO voice3_switch{};
 	voice3_switch.Init(daisy::seed::D3, daisy::GPIO::Mode::INPUT, daisy::GPIO::Pull::PULLUP);
 
+	// /// init lcd screen
+	// daisy::GPIO lcd_rs{};
+	// daisy::LcdHD44780 lcd{};
+	// daisy::LcdHD44780::Config lcd_config {	false,
+	// 										false,
+	// 										}
+
 	///*** Pogram Loop ***///
 	while(1)
 	{
@@ -114,11 +149,13 @@ int main(void)
 		}
 		if (pot_map[FLUTTER].process())
 		{
-			delay.setMasterFeedback(pot_map[FLUTTER].getVal());
+			delay.setMasterFlutter(pot_map[FLUTTER].getVal());
 		}
 		if (pot_map[MIX].process())
 		{
 			delay_mix = pot_map[MIX].getVal();
 		}
+
+		// print to lcd screen
 	}
 }

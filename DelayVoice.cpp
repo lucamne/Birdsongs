@@ -36,7 +36,7 @@ void DelayVoice::process(float in)
     if (current_delay <= 0.0f) {current_delay += static_cast<float>(_max_delay);}   //> enforce positive delay
     // get difference from expected delay and use that value to adjust interpolation amount
     const float delay_diff {current_delay - _delay_time};
-    float current_interp{delay_diff / static_cast<float>(_sample_rate)};
+    float current_interp{(delay_diff * 1.25f) / static_cast<float>(_sample_rate)};
     if (isinf(current_interp)) {current_interp = 0.0f;}
     
     // read sample from delay line
@@ -120,7 +120,7 @@ float DelayVoice::readSample(float position)
 void DelayVoice::processFlutter()
 {
     static constexpr float DELAY_SCALAR{10.0f};
-    static constexpr float LEVEL_SCALAR{0.05f}; 
+    static constexpr float LEVEL_SCALAR{0.07f}; 
     // randomizing delay time slightly causes pleasent random pitch shifting
     float noise {getLPNoise()};
     setDelayTime(_delay_time + _flutter * DELAY_SCALAR * noise);
