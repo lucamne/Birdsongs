@@ -1,17 +1,20 @@
 #include "DelayVoice.h"
 
-void DelayVoice::init(float* buffer, int buffer_size, int sample_rate)
+void DelayVoice::init(float* l_buffer, float* r_buffer, int buffer_size, int sample_rate)
 {
-    _dline = buffer;
+    _l_dline = l_buffer;
+    _r_dline = r_buffer;
     _max_delay = buffer_size;
     _sample_rate = sample_rate;
     // zero out delay line
     for (int i{0}; i < buffer_size; i++)
     {
-        _dline[i] = 0.0f;
+        _l_dline[i] = 0.0f;
+        _r_dline[i] = 0.0f;
     }
     // set write pointer to beginning of delay line
-    _wptr = _dline;
+    _l_wptr = _l_dline;
+    _r_wptr = _r_dline;
     // init dsp objects
     _noise.Init();
     _filter.Init(_sample_rate);
@@ -22,7 +25,7 @@ void DelayVoice::init(float* buffer, int buffer_size, int sample_rate)
     _sin_osc.SetFreq(rate);
 }
 
-void DelayVoice::process(float in)
+void DelayVoice::process(float left, float right)
 {
     // process flutter
     processFlutter();
@@ -32,15 +35,16 @@ void DelayVoice::process(float in)
     _rbuff = 0.0f;
 
     // calculate current delay based on read and write pointer positions
-    float current_delay {static_cast<float>(_wptr - _dline) - _rptr};
+    float current_delay {static_cast<float>(_l_wptr - _l_dline) - _rptr};
     if (current_delay <= 0.0f) {current_delay += static_cast<float>(_max_delay);}   //> enforce positive delay
     // get difference from expected delay and use that value to adjust interpolation amount
-    const float delay_diff {current_delay - _delay_time};
+    const float delay_diff {current_delay - _delay_time + _detune};
     float current_interp{(delay_diff * 1.25f) / static_cast<float>(_sample_rate)};
     if (isinf(current_interp)) {current_interp = 0.0f;}
     
     // read sample from delay line
-    float dline_sample {readSample(_rptr + current_interp)};
+    float left_dline_sample {readSample(_l_dline, _rptr + current_interp)};
+    float right_dline_sample {readSample(_r_dline, _rptr + current_interp)};
     // increment read pointer
     _rptr += 1 + current_interp;
     // ensure read pointer in range
@@ -52,15 +56,30 @@ void DelayVoice::process(float in)
     // if not in ping pong mode, still run osc
     else {_sin_osc.Process();}
 
-    // set voice output 
-    _lbuff = (1.0f - current_pan) * dline_sample;
-    _rbuff = current_pan * dline_sample;
+    // set buffers according to pan
+    if (current_pan < 0.5f)
+    {
+        _lbuff = left_dline_sample;
+        _rbuff = current_pan * 2.0f * right_dline_sample;
+    }
+    else if (current_pan > 0.5f)
+    {
+        _lbuff = (1.0f - current_pan) * 2.0f * left_dline_sample;
+        _rbuff = right_dline_sample;
+    }
+    else
+    {
+        _lbuff = left_dline_sample;
+        _rbuff = right_dline_sample;
+    }
 
-    // write new sample to delay line
-    *_wptr = in + (_lbuff + _rbuff) * _feedback;
+    // write new left sample to left delay line
+    *_l_wptr = left + _lbuff * _feedback;
+    *_r_wptr = right + _rbuff * _feedback;
 
     // increment write pointer and keep in range
-    if (++_wptr - _dline >= _max_delay) {_wptr -= _max_delay;}
+    if (++_l_wptr - _l_dline >= _max_delay) {_l_wptr -= _max_delay;}
+    if (++_r_wptr - _r_dline >= _max_delay) {_r_wptr -= _max_delay;}
 }
 
 void DelayVoice::setDelayTime(float samples)
@@ -99,7 +118,7 @@ void DelayVoice::setFlutter(float flutter)
     _flutter = flutter;
 }
 
-float DelayVoice::readSample(float position)
+float DelayVoice::readSample(float* const dline, float position)
 {
     // get samples to be interpolated
     float interp_amnt{position - std::floor(position)};
@@ -114,7 +133,7 @@ float DelayVoice::readSample(float position)
     if (interp_amnt < (1.0f / static_cast<float>(_max_delay))) { interp_amnt = 0.0f;}
     else if (interp_amnt > (static_cast<float>(_max_delay - 1) / static_cast<float>(_max_delay))) {interp_amnt = 1.0f;}
 
-    return (1.0f - interp_amnt) * _dline[samp1] + interp_amnt * _dline[samp2];
+    return (1.0f - interp_amnt) * dline[samp1] + interp_amnt * dline[samp2];
 }
 
 void DelayVoice::processFlutter()

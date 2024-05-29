@@ -7,10 +7,12 @@ class DelayVoice
 {
 public:
     DelayVoice()
-    :_dline{nullptr},
+    :_l_dline{nullptr},
+    _r_dline{nullptr},
     _max_delay{0},
     _sample_rate{48000},
-    _wptr{nullptr},
+    _l_wptr{nullptr},
+    _r_wptr{nullptr},
     _rptr{0.0f},
     _lbuff{0.0f},
     _rbuff{0.0f},
@@ -19,13 +21,18 @@ public:
     _feedback{0.0f},
     _pan{0.5f},
     _flutter{0.0f},
-    _bypass{false} {}
+    _bypass{false},
+    _ping_pong_mode{false},
+    _detune{0.0f} {}
 
     ~DelayVoice() {}
 
-    void init(float* buffer, int buffer_size, int sample_rate);
-    // input new sample
-    void process(float in);
+    // max delay is half of buffer size
+    void init(float* l_buffer, float* r_buffer, int buffer_size, int sample_rate);
+    // input new stereo sample
+    void process(float left, float right);
+    // input new mono sample
+    void process(float in) {process(in * 0.5f, in * 0.5f);}
     
     // set member values
     // set delay time in samples (samples can be fractional)
@@ -40,6 +47,8 @@ public:
     void setBypass(bool b) {_bypass = b;}
     // set ping_pong_mode
     void setPingPongMode(bool b) {_ping_pong_mode = b;}
+    // set detune amount in samples to stretch
+    void setDetune(float detune) {_detune = detune;}
     
     // get buffer outputs
     float getRight() const {return _rbuff;}
@@ -58,10 +67,12 @@ public:
 
 private:
     // delay line members
-    float* _dline{};        //> delay line
+    float* _l_dline{};      //> left delay line
+    float* _r_dline{};      //> right delay line
     int _max_delay{};       //> max delay size in samples
     int _sample_rate{};     //> holds hardware sample rate
-    float* _wptr{};         //> delay line write pointer
+    float* _l_wptr{};       //> left delay write pointer
+    float* _r_wptr{};       //> right delay line write pointer
     float _rptr{};          //> fractional delay line read pointer
     // audio output members
     float _lbuff{};         //> left audio buffer
@@ -74,6 +85,7 @@ private:
     float _flutter{};       //> controls warping of delay line
     bool _bypass{};         //> stores bypass state to be used by wrapper
     bool _ping_pong_mode{}; //> true if voice is in ping pong mode
+    float _detune{};        //> scalar value that detunes voice
 
     // daisy premade dsp objects
     daisysp::WhiteNoise _noise{};
@@ -81,7 +93,7 @@ private:
     daisysp::Oscillator _sin_osc{};
 
     // returns interpolated sample at position in _dline
-    float readSample(float position);
+    float readSample(float* const dline, float position);
     // randomly alters delay time to cause warping and adds some low freq noise
     void processFlutter();
     // returns low freq noise

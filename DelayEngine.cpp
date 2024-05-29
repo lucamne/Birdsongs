@@ -1,18 +1,19 @@
 #include "DelayEngine.h"
 
-void DelayEngine::init(float* buffer, int max_delay, int voice_count, int sample_rate)
+void DelayEngine::init(float* buffer1, float* buffer2, int max_delay, int voice_count, int sample_rate)
 {
     // zero buffer
     for (int i{0}; i < max_delay * voice_count; i++)
     {
-        buffer[i] = 0;
+        buffer1[i] = 0;
+        buffer2[i] = 0;
     }
     // allocate voice array
     _voices = new DelayVoice[voice_count];
     // init voices
     for (int voice_id{0}; voice_id < voice_count; voice_id++)
     {
-        _voices[voice_id].init(buffer + max_delay * voice_id, max_delay, sample_rate);
+        _voices[voice_id].init(buffer1 + max_delay * voice_id, buffer2 + max_delay * voice_id, max_delay, sample_rate);
     }
 
     // allocate ratio array
@@ -28,11 +29,11 @@ void DelayEngine::init(float* buffer, int max_delay, int voice_count, int sample
     _max_delay = max_delay;
 }
 
-void DelayEngine::process(float in)
+void DelayEngine::process(float left, float right)
 {
     for (int voice_id{0}; voice_id < _voice_count; voice_id++)
     {
-        _voices[voice_id].process(in);
+        _voices[voice_id].process(left, right);
     }
 }
 

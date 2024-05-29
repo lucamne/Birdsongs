@@ -12,11 +12,15 @@ static constexpr int SAMPLE_RATE{48000};
 /// constants for delay
 static constexpr int DELAY_VOICES{3};
 static constexpr int MAX_DELAY{SAMPLE_RATE * 2};
-float DSY_SDRAM_BSS DELAY_SDRAM_BUFFER[MAX_DELAY * DELAY_VOICES];
+float DSY_SDRAM_BSS DELAY_LEFT_BUFFER[MAX_DELAY * DELAY_VOICES];
+float DSY_SDRAM_BSS DELAY_RIGHT_BUFFER[MAX_DELAY * DELAY_VOICES];
+
 /// constants for chorus
 static constexpr int CHORUS_VOICES{2};
-static constexpr int MAX_CHORUS_DELAY{SAMPLE_RATE / 30};
-float DSY_SDRAM_BSS CHORUS_SDRAM_BUFFER[MAX_CHORUS_DELAY * CHORUS_VOICES];
+static constexpr int MAX_CHORUS_DELAY{SAMPLE_RATE / 50};
+// multiply by 2 because each delay voice needs two delay lines
+float DSY_SDRAM_BSS CHORUS_LEFT_BUFFER[MAX_CHORUS_DELAY * CHORUS_VOICES];
+float DSY_SDRAM_BSS CHORUS_RIGHT_BUFFER[MAX_CHORUS_DELAY * CHORUS_VOICES];
 
 daisy::DaisySeed hw{}; //> Daisy seed hardware object
 daisy::CpuLoadMeter load_meter{};
@@ -24,27 +28,37 @@ daisy::CpuLoadMeter load_meter{};
 // init effects
 DelayEngine delay{};
 DelayEngine chorus{};
-float delay_mix{0.3f};
-float chorus_mix{0.333f};
+float delay_mix{0.0f};
+static constexpr float chorus_mix{1.0};
+static bool chorus_on{false};
 
 void AudioCallback(daisy::AudioHandle::InterleavingInputBuffer in, daisy::AudioHandle::InterleavingOutputBuffer out, size_t size)
 {
 	load_meter.OnBlockStart();
     for (size_t i = 0; i < size; i+=2)
     {
+		float left_out{in[i] * 0.5f};
+		float right_out{in[i] * 0.5f};
+
 		// delay stage
-		// delay.process(in[i]);
-        // out[i] = delay.getLeft() * delay_mix + in[i] * (1 - delay_mix);
-        // out[i+1] = delay.getRight() * delay_mix + in[i] * (1 - delay_mix);
+		delay.process(left_out, right_out);
+        left_out = delay.getLeft() * delay_mix + left_out * (1 - delay_mix);
+        right_out = delay.getRight() * delay_mix + right_out * (1 - delay_mix);
 
 		// chorus stage
-		chorus.process(in[i]);
-		out[i] = chorus.getLeft() * chorus_mix + in[i] * (1 - chorus_mix);
-		out[i+1] = chorus.getRight() * chorus_mix + in[i] * (1 - chorus_mix);
+		if (chorus_on)
+		{
+			chorus.process(left_out, right_out);
+			left_out = chorus.getLeft() * chorus_mix + left_out * (1 - chorus_mix);
+			right_out = chorus.getRight() * chorus_mix + right_out * (1 - chorus_mix);
+		}
 
 		// passthrough
 		// out[i] = in[i];
 		// out[i+1] = in[i];
+
+		out[i] = left_out;
+		out[i+1] = right_out;
     }
 	load_meter.OnBlockEnd();
 }
@@ -63,28 +77,28 @@ int main(void)
 	load_meter.Init(hw_sample_rate,hw.AudioBlockSize());
 	
 	/// init delay 
-	delay.init(DELAY_SDRAM_BUFFER, MAX_DELAY, DELAY_VOICES, SAMPLE_RATE);
+	delay.init(DELAY_LEFT_BUFFER, DELAY_RIGHT_BUFFER, MAX_DELAY, DELAY_VOICES, SAMPLE_RATE);
 	// set pans of voices
 	delay.setPan(0,0.0f);
 	delay.setPan(1,0.5f);
 	delay.setPan(2,1.0f);
-	// temporarily hardcode ping pong mode to true
-	delay.setPingPongMode(true);
 	// ratios are hardcoded temporarily, will be assigned to pots
 	delay.setDelayRatio(0,0.67f);
 	delay.setDelayRatio(1,1.0f);
 	delay.setDelayRatio(2,0.44f);
 
 	/// init chorus
-	chorus.init(CHORUS_SDRAM_BUFFER, MAX_CHORUS_DELAY, CHORUS_VOICES, SAMPLE_RATE);
-	chorus.setMasterDelayTime(MAX_CHORUS_DELAY);
-	chorus.setMasterFlutter(0.667f);
+	chorus.init(CHORUS_LEFT_BUFFER, CHORUS_RIGHT_BUFFER, MAX_CHORUS_DELAY, CHORUS_VOICES, SAMPLE_RATE);
 	// set voice panning
 	chorus.setPan(0,0.0f);
 	chorus.setPan(1,1.0f);
 	// add slight variation in delay time
 	chorus.setDelayRatio(0,1.0f);
-	chorus.setDelayRatio(1,0.67f);
+	chorus.setDelayRatio(1,0.2f);
+	chorus.setMasterFlutter(0.35f);
+	chorus.setDetune(0,-300.0f);
+	chorus.setMasterFeedback(0.13f);
+	chorus.setMasterDelayTime(MAX_CHORUS_DELAY);
 
 	hw.StartAudio(AudioCallback);
 
@@ -118,6 +132,12 @@ int main(void)
 	voice2_switch.Init(daisy::seed::D2, daisy::GPIO::Mode::INPUT, daisy::GPIO::Pull::PULLUP);
 	daisy::GPIO voice3_switch{};
 	voice3_switch.Init(daisy::seed::D3, daisy::GPIO::Mode::INPUT, daisy::GPIO::Pull::PULLUP);
+	daisy::GPIO ping_pong_switch{};
+	ping_pong_switch.Init(daisy::seed::D4, daisy::GPIO::Mode::INPUT, daisy::GPIO::Pull::PULLUP);
+	daisy::GPIO chorus_switch{};
+	chorus_switch.Init(daisy::seed::D5, daisy::GPIO::Mode::INPUT, daisy::GPIO::Pull::PULLUP);
+	
+
 
 	// /// init lcd screen
 	// daisy::GPIO lcd_rs{};
@@ -132,6 +152,8 @@ int main(void)
 		delay.setBypass(0,voice1_switch.Read());
 		delay.setBypass(1,voice2_switch.Read());
 		delay.setBypass(2,voice3_switch.Read());
+		delay.setPingPongMode(!ping_pong_switch.Read());
+		chorus_on = !chorus_switch.Read();
 
 		hw.PrintLine("Time:%f Feedback:%f Flutter:%f Mix:%f",
 						(delay.getMasterDelayTime() / static_cast<float>(SAMPLE_RATE)) * 1000.0f, 

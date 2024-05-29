@@ -10,10 +10,11 @@ public:
 
     ~DelayEngine() { delete[] _voices; delete[] _ratios;}
 
-    // initializes engines with max delay per voice, number of voices and sample rate -- Ensure allocated buffer is at least max_delay * num_voices
-    void init(float* buffer, int max_delay, int num_voices, int sample_rate);
+    // initializes engines with max delay per voice, number of voices and sample rate -- Ensure buffer size is >= max_delay * voice_count
+    void init(float* buffer1, float* buffer2, int max_delay, int num_voices, int sample_rate);
     // processes new sample
-    void process(float in);
+    void process(float left, float right);
+    void process(float in) {process(in * 0.5f, in * 0.5f);}
     // get stereo output
     float getLeft();
     float getRight();
@@ -34,6 +35,8 @@ public:
     void setPan(int voice_id, float pan);
     // set bypass of specific voice to true or false
     void setBypass(int voice_id, bool b) {_voices[voice_id].setBypass(b);}
+    // set detune in samples to stretch
+    void setDetune(int voice_id, float detune) {_voices[voice_id].setDetune(detune);}
 
     /// getters
 
